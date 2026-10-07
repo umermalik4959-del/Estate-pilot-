@@ -1,0 +1,46 @@
+name: Build EstatePilot APK
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Extract Project
+        run: unzip EstatePilot_Phase1_Source.zip -d project
+
+      - name: Find Flutter Project
+        id: find
+        run: |
+          DIR=$(find project -name pubspec.yaml -print -quit | xargs dirname)
+          echo "dir=$DIR" >> $GITHUB_OUTPUT
+
+      - name: Get Packages
+        working-directory: ${{ steps.find.outputs.dir }}
+        run: flutter pub get
+
+      - name: Build APK
+        working-directory: ${{ steps.find.outputs.dir }}
+        run: flutter build apk --release
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: EstatePilot-APK
+          path: ${{ steps.find.outputs.dir }}/build/app/outputs/flutter-apk/app-release.apk
