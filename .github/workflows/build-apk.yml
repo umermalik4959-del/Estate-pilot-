@@ -1,14 +1,15 @@
 name: Build EstatePilot APK
 
-on:
+"on":
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Setup Java 17
@@ -17,48 +18,63 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Install Android 36
-        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
-
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
 
-      - name: Extract EstatePilot
+      - name: Extract EstatePilot source
         run: |
-          unzip -q EstatePilot_Phase1_Source.zip
-          test -f EstatePilot/pubspec.yaml
+          rm -rf source build_app
+          mkdir -p source
+          unzip -q EstatePilot_Phase1_Source.zip -d source
+          test -f source/EstatePilot/pubspec.yaml
+          test -f source/EstatePilot/lib/main.dart
 
-      - name: Restore Wrapper and Fix Gradle
+      - name: Create fresh compatible Android project
         run: |
-          flutter create --platforms=android --project-name wrapper_seed /tmp/wrapper_seed
-          cp /tmp/wrapper_seed/android/gradlew EstatePilot/android/gradlew
-          cp /tmp/wrapper_seed/android/gradlew.bat EstatePilot/android/gradlew.bat
-          cp /tmp/wrapper_seed/android/gradle/wrapper/gradle-wrapper.jar EstatePilot/android/gradle/wrapper/gradle-wrapper.jar
-          sed -i 's/gradle-8.13-bin.zip/gradle-8.14.3-bin.zip/g' EstatePilot/android/gradle/wrapper/gradle-wrapper.properties
-          chmod +x EstatePilot/android/gradlew
-          grep distributionUrl EstatePilot/android/gradle/wrapper/gradle-wrapper.properties
+          flutter create \
+            --platforms=android \
+            --org com.estatepilot \
+            --project-name app \
+            build_app
 
-      - name: Get Packages
-        working-directory: EstatePilot
+      - name: Copy EstatePilot app code
+        run: |
+          rm -rf build_app/lib build_app/test
+          cp -R source/EstatePilot/lib build_app/lib
+          cp -R source/EstatePilot/test build_app/test
+          cp source/EstatePilot/pubspec.yaml build_app/pubspec.yaml
+          cp source/EstatePilot/analysis_options.yaml build_app/analysis_options.yaml
+
+          # Keep the fresh Flutter/Gradle build files, but restore EstatePilot's
+          # Android launcher icon, splash resources, manifest and native bridge.
+          rm -rf build_app/android/app/src/main
+          cp -R source/EstatePilot/android/app/src/main build_app/android/app/src/main
+
+      - name: Get packages
+        working-directory: build_app
         run: flutter pub get
 
-      - name: Build APK
-        working-directory: EstatePilot
+      - name: Run tests
+        working-directory: build_app
+        run: flutter test
+
+      - name: Build release APK
+        working-directory: build_app
         run: flutter build apk --release
 
-      - name: Rename APK
-        run: cp EstatePilot/build/app/outputs/flutter-apk/app-release.apk EstatePilot.apk
+      - name: Prepare EstatePilot APK
+        run: |
+          cp build_app/build/app/outputs/flutter-apk/app-release.apk EstatePilot.apk
+          test -s EstatePilot.apk
+          ls -lh EstatePilot.apk
 
-      - name: Upload APK
+      - name: Upload EstatePilot APK
         uses: actions/upload-artifact@v4
         with:
           name: EstatePilot-APK
           path: EstatePilot.apk
           if-no-files-found: error
-          
+          retention-days: 30
